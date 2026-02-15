@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CutSheet — Wood Cut Optimizer</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --border: #2a2a4a;
+  --accent: #e07a5f;
+  --accent2: #81b29a;
+  --text: #e8e8e8;
+  --muted: #888;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+h1 { font-size: 1.8rem; padding: 24px; text-align: center; }
+h1 span { color: var(--accent); }
+
+.app { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+
+.grid { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.panel h2 { font-size: 1rem; margin-bottom: 16px; color: var(--accent2); }
+
+label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+label:first-child { margin-top: 0; }
+input, select { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.95rem; }
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+.row { display: flex; gap: 10px; }
+.row > * { flex: 1; }
+
+.btn { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity 0.15s; }
+.btn:hover { opacity: 0.85; }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-green { background: var(--accent2); color: #1a1a2e; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+.btn-danger { background: #e74c3c; color: #fff; }
+
+.pieces-list { margin-top: 12px; }
+.piece-item { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--bg); border-radius: 4px; margin-bottom: 6px; font-size: 0.9rem; }
+.piece-item .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+.piece-item .dims { flex: 1; }
+.piece-item .qty { color: var(--muted); }
+.piece-item .lbl { color: var(--accent2); font-size: 0.8rem; }
+
+.actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+.stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat { background: var(--bg); border-radius: 4px; padding: 10px 14px; text-align: center; flex: 1; min-width: 100px; }
+.stat .val { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.stat .lbl { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+.canvas-wrap { position: relative; width: 100%; overflow: auto; background: var(--bg); border-radius: var(--radius); border: 1px solid var(--border); }
+canvas { display: block; }
+
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.preset { padding: 4px 10px; font-size: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; }
+.preset:hover, .preset.active { border-color: var(--accent); color: var(--accent); }
+
+.empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-state p { margin-top: 8px; font-size: 0.9rem; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+.legend-item .swatch { width: 12px; height: 12px; border-radius: 2px; }
+
+.grain-note { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+.cut-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.85rem; }
+.cut-table th { text-align: left; padding: 8px; border-bottom: 2px solid var(--border); color: var(--accent2); font-weight: 600; }
+.cut-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.cut-table tr:hover td { background: rgba(255,255,255,0.03); }
+.cut-table .rotated { color: var(--accent); font-size: 0.75rem; }
+
+footer { text-align: center; padding: 20px; color: var(--muted); font-size: 0.8rem; }
+footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<h1>🪵 <span>CutSheet</span></h1>
+
+<div class="app">
+<div class="grid">
+
+<!-- LEFT PANEL -->
+<div>
+  <div class="panel">
+    <h2>📐 Stock Sheet</h2>
+    <label>Preset</label>
+    <div class="presets" id="sheetPresets"></div>
+    <div class="row">
+      <div><label>Width</label><input type="number" id="sheetW" value="96" step="0.125" min="1"></div>
+      <div><label>Height</label><input type="number" id="sheetH" value="48" step="0.125" min="1"></div>
+    </div>
+    <label>Units</label>
+    <select id="units">
+      <option value="in" selected>Inches</option>
+      <option value="cm">Centimeters</option>
+      <option value="mm">Millimeters</option>
+    </select>
+    <label>Saw Kerf</label>
+    <input type="number" id="kerf" value="0.125" step="0.0625" min="0">
+    <div class="grain-note">Kerf = blade width lost per cut. Default 1/8" for circular saw.</div>
+  </div>
+
+  <div class="panel" style="margin-top: 16px;">
+    <h2>📦 Cut Pieces</h2>
+    <div class="row">
+      <div><label>Width</label><input type="number" id="pieceW" step="0.125" min="0.25"></div>
+      <div><label>Height</label><input type="number" id="pieceH" step="0.125" min="0.25"></div>
+    </div>
+    <div class="row">
+      <div><label>Qty</label><input type="number" id="pieceQty" value="1" min="1" max="99"></div>
+      <div><label>Label (optional)</label><input type="text" id="pieceLabel" placeholder="e.g. Shelf"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:12px;cursor:pointer;">
+      <input type="checkbox" id="pieceRotate" checked style="width:auto;"> Allow rotation (90°)
+    </label>
+    <div class="actions">
+      <button class="btn btn-accent" onclick="addPiece()">Add Piece</button>
+      <button class="btn btn-outline" onclick="clearPieces()">Clear All</button>
+      <button class="btn btn-outline" onclick="loadExample()">Load Example</button>
+    </div>
+    <div class="pieces-list" id="piecesList"></div>
+  </div>
+
+  <div class="actions" style="margin-top: 16px;">
+    <button class="btn btn-green" onclick="optimize()" style="flex:1;">⚡ Optimize Layout</button>
+  </div>
+</div>
+
+<!-- RIGHT PANEL -->
+<div>
+  <div class="panel" id="resultPanel">
+    <h2>🗺️ Cut Layout</h2>
+    <div id="statsArea"></div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="empty-state" id="emptyState">
+        <p>🪚</p>
+        <p>Add pieces and click <strong>Optimize Layout</strong></p>
+      </div>
+      <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div id="cutList"></div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<footer>
+  CutSheet — Open source cut optimizer · <a href="https://github.com/rubolix/CutSheet">GitHub</a>
+</footer>
+
+<script>
+// ── State ──
+let pieces = [];
+const COLORS = [
+  '#e07a5f','#81b29a','#f2cc8f','#3d5a80','#ee6c4d',
+  '#98c1d9','#e76f51','#2a9d8f','#e9c46a','#264653',
+  '#f4a261','#a8dadc','#457b9d','#bc6c25','#606c38',
+  '#dda15e','#6d6875','#b5838d','#e5989b','#ffb4a2'
+];
+
+// ── Sheet Presets ──
+const PRESETS = [
+  { name: '4×8 Plywood', w: 96, h: 48, unit: 'in' },
+  { name: '4×4 Panel', w: 48, h: 48, unit: 'in' },
+  { name: '2×4 Board', w: 96, h: 3.5, unit: 'in' },
+  { name: '1×6 Board', w: 72, h: 5.5, unit: 'in' },
+  { name: '1×12 Board', w: 96, h: 11.25, unit: 'in' },
+  { name: '2440×1220mm', w: 2440, h: 1220, unit: 'mm' },
+];
+
+function initPresets() {
+  const wrap = document.getElementById('sheetPresets');
+  PRESETS.forEach((p, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'preset';
+    btn.textContent = p.name;
+    btn.onclick = () => {
+      document.getElementById('sheetW').value = p.w;
+      document.getElementById('sheetH').value = p.h;
+      document.getElementById('units').value = p.unit;
+      if (p.unit === 'mm') document.getElementById('kerf').value = 3.175;
+      else if (p.unit === 'cm') document.getElementById('kerf').value = 0.3175;
+      else document.getElementById('kerf').value = 0.125;
+      wrap.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+    wrap.appendChild(btn);
+  });
+}
+
+// ── Piece Management ──
+function addPiece() {
+  const w = parseFloat(document.getElementById('pieceW').value);
+  const h = parseFloat(document.getElementById('pieceH').value);
+  const qty = parseInt(document.getElementById('pieceQty').value) || 1;
+  const label = document.getElementById('pieceLabel').value.trim();
+  const canRotate = document.getElementById('pieceRotate').checked;
+  if (!w || !h || w <= 0 || h <= 0) return alert('Enter valid width and height.');
+  pieces.push({ w, h, qty, label, canRotate, color: COLORS[pieces.length % COLORS.length] });
+  document.getElementById('pieceW').value = '';
+  document.getElementById('pieceH').value = '';
+  document.getElementById('pieceQty').value = '1';
+  document.getElementById('pieceLabel').value = '';
+  renderPiecesList();
+}
+
+function removePiece(i) {
+  pieces.splice(i, 1);
+  pieces.forEach((p, j) => p.color = COLORS[j % COLORS.length]);
+  renderPiecesList();
+}
+
+function clearPieces() {
+  pieces = [];
+  renderPiecesList();
+  document.getElementById('canvas').style.display = 'none';
+  document.getElementById('emptyState').style.display = '';
+  document.getElementById('statsArea').innerHTML = '';
+  document.getElementById('legend').innerHTML = '';
+  document.getElementById('cutList').innerHTML = '';
+}
+
+function loadExample() {
+  pieces = [
+    { w: 30, h: 15, qty: 2, label: 'Shelf', canRotate: true, color: COLORS[0] },
+    { w: 24, h: 12, qty: 3, label: 'Side Panel', canRotate: true, color: COLORS[1] },
+    { w: 36, h: 6, qty: 4, label: 'Rail', canRotate: true, color: COLORS[2] },
+    { w: 18, h: 18, qty: 2, label: 'Door', canRotate: false, color: COLORS[3] },
+    { w: 12, h: 8, qty: 5, label: 'Drawer Front', canRotate: true, color: COLORS[4] },
+  ];
+  document.getElementById('sheetW').value = 96;
+  document.getElementById('sheetH').value = 48;
+  document.getElementById('units').value = 'in';
+  document.getElementById('kerf').value = 0.125;
+  renderPiecesList();
+}
+
+function renderPiecesList() {
+  const list = document.getElementById('piecesList');
+  const unit = document.getElementById('units').value;
+  list.innerHTML = pieces.map((p, i) => `
+    <div class="piece-item">
+      <div class="swatch" style="background:${p.color}"></div>
+      <div class="dims">${fmtDim(p.w)}×${fmtDim(p.h)}${unit}</div>
+      <div class="qty">×${p.qty}</div>
+      ${p.label ? `<div class="lbl">${esc(p.label)}</div>` : ''}
+      <button class="btn btn-sm btn-danger" onclick="removePiece(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function fmtDim(v) {
+  return v % 1 === 0 ? v.toString() : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}
+function esc(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ── Optimizer (Guillotine Best-Area-Fit with rotation) ──
+function optimize() {
+  const sheetW = parseFloat(document.getElementById('sheetW').value);
+  const sheetH = parseFloat(document.getElementById('sheetH').value);
+  const kerf = parseFloat(document.getElementById('kerf').value) || 0;
+
+  if (!sheetW || !sheetH) return alert('Set stock sheet dimensions.');
+  if (pieces.length === 0) return alert('Add at least one piece.');
+
+  // Expand quantities into individual rects
+  let rects = [];
+  pieces.forEach(p => {
+    for (let i = 0; i < p.qty; i++) {
+      rects.push({ w: p.w, h: p.h, label: p.label, color: p.color, canRotate: p.canRotate, placed: false, x: 0, y: 0, rotated: false });
+    }
+  });
+
+  // Sort by area descending (largest first heuristic)
+  rects.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+
+  // Guillotine bin packing
+  let freeRects = [{ x: 0, y: 0, w: sheetW, h: sheetH }];
+  let placed = [];
+  let unplaced = [];
+
+  for (const rect of rects) {
+    let bestScore = Infinity;
+    let bestFree = -1;
+    let bestRotated = false;
+
+    for (let fi = 0; fi < freeRects.length; fi++) {
+      const f = freeRects[fi];
+
+      // Try normal orientation
+      if (rect.w + kerf <= f.w + kerf && rect.h + kerf <= f.h + kerf &&
+          rect.w <= f.w && rect.h <= f.h) {
+        const score = f.w * f.h - rect.w * rect.h; // leftover area
+        if (score < bestScore) {
+          bestScore = score;
+          bestFree = fi;
+          bestRotated = false;
+        }
+      }
+
+      // Try rotated
+      if (rect.canRotate && rect.w !== rect.h) {
+        if (rect.h <= f.w && rect.w <= f.h) {
+          const score = f.w * f.h - rect.w * rect.h;
+          if (score < bestScore) {
+            bestScore = score;
+            bestFree = fi;
+            bestRotated = true;
+          }
+        }
+      }
+    }
+
+    if (bestFree >= 0) {
+      const f = freeRects[bestFree];
+      const pw = bestRotated ? rect.h : rect.w;
+      const ph = bestRotated ? rect.w : rect.h;
+
+      const placedRect = {
+        x: f.x, y: f.y,
+        w: pw, h: ph,
+        label: rect.label, color: rect.color,
+        rotated: bestRotated,
+        origW: rect.w, origH: rect.h
+      };
+      placed.push(placedRect);
+
+      // Split the free rectangle (guillotine split — longer axis)
+      freeRects.splice(bestFree, 1);
+      const rightW = f.w - pw - kerf;
+      const bottomH = f.h - ph - kerf;
+
+      if (rightW > 0 && f.h > 0) {
+        freeRects.push({ x: f.x + pw + kerf, y: f.y, w: rightW, h: f.h });
+      }
+      if (bottomH > 0 && pw > 0) {
+        freeRects.push({ x: f.x, y: f.y + ph + kerf, w: pw, h: bottomH });
+      }
+
+      // Sort free rects by area (smallest first = best fit)
+      freeRects.sort((a, b) => (a.w * a.h) - (b.w * b.h));
+    } else {
+      unplaced.push(rect);
+    }
+  }
+
+  renderResult(sheetW, sheetH, kerf, placed, unplaced, freeRects);
+}
+
+// ── Rendering ──
+function renderResult(sheetW, sheetH, kerf, placed, unplaced, freeRects) {
+  const unit = document.getElementById('units').value;
+  const sheetArea = sheetW * sheetH;
+  const usedArea = placed.reduce((sum, r) => sum + r.w * r.h, 0);
+  const wasteArea = sheetArea - usedArea;
+  const efficiency = ((usedArea / sheetArea) * 100).toFixed(1);
+
+  // Stats
+  const statsHTML = `<div class="stats">
+    <div class="stat"><div class="val">${placed.length}</div><div class="lbl">Pieces Placed</div></div>
+    <div class="stat"><div class="val">${efficiency}%</div><div class="lbl">Efficiency</div></div>
+    <div class="stat"><div class="val">${fmtDim(wasteArea)}</div><div class="lbl">Waste (${unit}²)</div></div>
+    ${unplaced.length > 0 ? `<div class="stat"><div class="val" style="color:#e74c3c">${unplaced.length}</div><div class="lbl">Didn't Fit</div></div>` : ''}
+  </div>`;
+  document.getElementById('statsArea').innerHTML = statsHTML;
+
+  // Canvas with padding for dimension labels
+  const pad = { top: 8, right: 8, bottom: 28, left: 28 };
+  const maxCanvasW = document.getElementById('canvasWrap').clientWidth - 2;
+  const availW = maxCanvasW - pad.left - pad.right;
+  const availH = 600;
+  const scale = Math.min(availW / sheetW, availH / sheetH);
+  const cw = sheetW * scale + pad.left + pad.right;
+  const ch = sheetH * scale + pad.top + pad.bottom;
+  const canvas = document.getElementById('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+  canvas.style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const ox = pad.left;
+  const oy = pad.top;
+  const sw = sheetW * scale;
+  const sh = sheetH * scale;
+
+  // Sheet background
+  ctx.fillStyle = '#3a2d1e';
+  ctx.fillRect(ox, oy, sw, sh);
+
+  // Wood grain effect
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ox, oy, sw, sh);
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for (let y = oy; y < oy + sh; y += 4) {
+    ctx.beginPath();
+    ctx.moveTo(ox, y + Math.sin(y * 0.05) * 2);
+    for (let x = ox; x < ox + sw; x += 10) {
+      ctx.lineTo(x, y + Math.sin((y + x) * 0.05) * 2);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Collect unique cut lines (full-length guillotine cuts)
+  const cutLinesH = new Set(); // horizontal cuts (y positions)
+  const cutLinesV = new Set(); // vertical cuts (x positions)
+
+  // Draw placed pieces
+  placed.forEach(r => {
+    const x = ox + r.x * scale;
+    const y = oy + r.y * scale;
+    const w = r.w * scale;
+    const h = r.h * scale;
+
+    ctx.fillStyle = r.color + 'cc';
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    // Track cut positions
+    const rightEdge = r.x + r.w;
+    const bottomEdge = r.y + r.h;
+    if (rightEdge < sheetW - 0.01) cutLinesV.add(rightEdge);
+    if (bottomEdge < sheetH - 0.01) cutLinesH.add(bottomEdge);
+
+    // Label
+    const fontSize = Math.min(14, Math.min(w, h) * 0.3);
+    if (fontSize >= 7) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const text = r.label || `${fmtDim(r.origW)}×${fmtDim(r.origH)}`;
+      ctx.fillText(text, x + w / 2, y + h / 2 - fontSize * 0.5);
+      ctx.font = `${fontSize * 0.75}px -apple-system, sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      const dimText = `${fmtDim(r.w)}×${fmtDim(r.h)}${unit}${r.rotated ? ' ↻' : ''}`;
+      ctx.fillText(dimText, x + w / 2, y + h / 2 + fontSize * 0.45);
+    }
+  });
+
+  // Draw cut lines spanning the full sheet (where to cut)
+  ctx.strokeStyle = 'rgba(255, 80, 80, 0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  cutLinesV.forEach(xPos => {
+    const cx = ox + xPos * scale;
+    ctx.beginPath();
+    ctx.moveTo(cx, oy);
+    ctx.lineTo(cx, oy + sh);
+    ctx.stroke();
+  });
+  cutLinesH.forEach(yPos => {
+    const cy = oy + yPos * scale;
+    ctx.beginPath();
+    ctx.moveTo(ox, cy);
+    ctx.lineTo(ox + sw, cy);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // Sheet border
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox, oy, sw, sh);
+
+  // Dimension labels
+  ctx.fillStyle = '#888';
+  ctx.font = '12px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${fmtDim(sheetW)} ${unit}`, ox + sw / 2, oy + sh + 6);
+  ctx.save();
+  ctx.translate(ox - 6, oy + sh / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`${fmtDim(sheetH)} ${unit}`, 0, 0);
+  ctx.restore();
+
+  // Cut position markers along edges
+  ctx.fillStyle = '#ff5050';
+  ctx.font = '9px -apple-system, sans-serif';
+  ctx.textBaseline = 'top';
+  cutLinesV.forEach(xPos => {
+    const cx = ox + xPos * scale;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${fmtDim(xPos)}`, cx, oy + sh + 4);
+    // Tick mark
+    ctx.beginPath();
+    ctx.moveTo(cx, oy + sh);
+    ctx.lineTo(cx, oy + sh + 3);
+    ctx.strokeStyle = '#ff5050';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+  ctx.textBaseline = 'middle';
+  cutLinesH.forEach(yPos => {
+    const cy = oy + yPos * scale;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${fmtDim(yPos)}`, ox - 4, cy);
+    ctx.beginPath();
+    ctx.moveTo(ox, cy);
+    ctx.lineTo(ox - 3, cy);
+    ctx.strokeStyle = '#ff5050';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Legend
+  const uniquePieces = [];
+  const seen = new Set();
+  pieces.forEach(p => {
+    const key = p.color;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniquePieces.push(p);
+    }
+  });
+  document.getElementById('legend').innerHTML = uniquePieces.map(p =>
+    `<div class="legend-item"><div class="swatch" style="background:${p.color}"></div>${p.label || `${fmtDim(p.w)}×${fmtDim(p.h)}`} ×${p.qty}</div>`
+  ).join('');
+
+  // Cut list table
+  const vCuts = [...cutLinesV].sort((a, b) => a - b);
+  const hCuts = [...cutLinesH].sort((a, b) => a - b);
+  let cutHTML = `<h2 style="margin-top:20px;font-size:1rem;color:#81b29a;">📋 Cut List</h2>`;
+
+  if (vCuts.length > 0 || hCuts.length > 0) {
+    cutHTML += `<p style="font-size:0.85rem;color:#888;margin:8px 0;">Red dashed lines show where to make cuts. Measurements are from the sheet edges.</p>`;
+    cutHTML += `<table class="cut-table"><thead><tr><th>#</th><th>Direction</th><th>Position from Edge</th><th>Length</th></tr></thead><tbody>`;
+    let cutNum = 1;
+    vCuts.forEach(x => {
+      cutHTML += `<tr><td>${cutNum++}</td><td>↕ Vertical (rip)</td><td>${fmtDim(x)} ${unit} from left</td><td>${fmtDim(sheetH)} ${unit}</td></tr>`;
+    });
+    hCuts.forEach(y => {
+      cutHTML += `<tr><td>${cutNum++}</td><td>↔ Horizontal (crosscut)</td><td>${fmtDim(y)} ${unit} from top</td><td>${fmtDim(sheetW)} ${unit}</td></tr>`;
+    });
+    cutHTML += `</tbody></table>`;
+  }
+
+  cutHTML += `<h2 style="margin-top:20px;font-size:1rem;color:#81b29a;">📐 Piece Placement</h2>`;
+  cutHTML += `<table class="cut-table"><thead><tr><th>#</th><th>Piece</th><th>Size</th><th>Position (x, y)</th><th>Notes</th></tr></thead><tbody>`;
+  placed.forEach((r, i) => {
+    const notes = r.rotated ? '<span class="rotated">↻ Rotated 90°</span>' : '';
+    cutHTML += `<tr>
+      <td><div class="legend-item"><div class="swatch" style="background:${r.color}"></div>${i + 1}</div></td>
+      <td>${r.label || '—'}</td>
+      <td>${fmtDim(r.w)}×${fmtDim(r.h)} ${unit}</td>
+      <td>(${fmtDim(r.x)}, ${fmtDim(r.y)})</td>
+      <td>${notes}</td>
+    </tr>`;
+  });
+  cutHTML += `</tbody></table>`;
+
+  if (unplaced.length > 0) {
+    cutHTML += `<p style="color:#e74c3c;margin-top:12px;font-size:0.9rem;">⚠️ ${unplaced.length} piece(s) did not fit on the sheet. Consider using a larger stock sheet or splitting across multiple sheets.</p>`;
+  }
+
+  document.getElementById('cutList').innerHTML = cutHTML;
+}
+
+// ── Init ──
+initPresets();
+document.getElementById('pieceW').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('pieceH').focus(); });
+document.getElementById('pieceH').addEventListener('keydown', e => { if (e.key === 'Enter') addPiece(); });
+</script>
+</body>
+</html>
