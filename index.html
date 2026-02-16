@@ -270,10 +270,20 @@ function initPresets() {
       if (p.unit === 'mm') document.getElementById('kerf').value = 3.175;
       else if (p.unit === 'cm') document.getElementById('kerf').value = 0.3175;
       else document.getElementById('kerf').value = 0.125;
-      wrap.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      syncPresetHighlight();
     };
     wrap.appendChild(btn);
+  });
+}
+
+function syncPresetHighlight() {
+  const w = parseFloat(document.getElementById('sheetW').value);
+  const h = parseFloat(document.getElementById('sheetH').value);
+  const unit = document.getElementById('units').value;
+  const btns = document.getElementById('sheetPresets').querySelectorAll('.preset');
+  btns.forEach((btn, i) => {
+    const p = PRESETS[i];
+    btn.classList.toggle('active', p.w === w && p.h === h && p.unit === unit);
   });
 }
 
@@ -363,6 +373,7 @@ function loadExample() {
   document.getElementById('sheetH').value = 48;
   document.getElementById('units').value = 'in';
   document.getElementById('kerf').value = 0.125;
+  syncPresetHighlight();
   renderPiecesList();
 }
 
@@ -720,16 +731,31 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
     if (rightEdge < sheetW - 0.01) cutLinesV.add(rightEdge);
     if (bottomEdge < sheetH - 0.01) cutLinesH.add(bottomEdge);
 
-    // Label + dimensions + grain arrow
+    // Label + dimensions + grain arrow (clipped to piece bounds)
     const fontSize = Math.min(14, Math.min(w, h) * 0.3);
     if (fontSize >= 7) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 1, y + 1, w - 2, h - 2);
+      ctx.clip();
+
       ctx.fillStyle = '#fff';
       ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const text = r.label || `${fmtDim(r.origW)}×${fmtDim(r.origH)}`;
       const grainArrow = (r.grain === 'with' || r.grain === 'cross') ? (' ' + grainLabel(r.grain)) : '';
-      ctx.fillText(text + grainArrow, x + w / 2, y + h / 2 - fontSize * 0.5);
+      // Truncate label if it's wider than the piece
+      let displayText = text + grainArrow;
+      const maxTextW = w - 6;
+      let measured = ctx.measureText(displayText).width;
+      if (measured > maxTextW) {
+        while (displayText.length > 1 && ctx.measureText(displayText + '…').width > maxTextW) {
+          displayText = displayText.slice(0, -1);
+        }
+        displayText += '…';
+      }
+      ctx.fillText(displayText, x + w / 2, y + h / 2 - fontSize * 0.5);
       ctx.font = `${fontSize * 0.75}px -apple-system, sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       const dimText = `${fmtDim(r.w)}×${fmtDim(r.h)}${unit}${r.rotated ? ' ↻' : ''}`;
@@ -739,13 +765,11 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
       if (r.grain === 'with' || r.grain === 'cross') {
         const arrowSize = Math.min(w, h) * 0.15;
         if (arrowSize >= 4) {
-          ctx.save();
           ctx.strokeStyle = 'rgba(255,255,255,0.5)';
           ctx.lineWidth = 1.5;
           const cx = x + w / 2;
           const cy = y + h / 2 + fontSize * 0.9;
           if (r.grain === 'with' && !r.rotated || r.grain === 'cross' && r.rotated) {
-            // Horizontal arrow →
             ctx.beginPath();
             ctx.moveTo(cx - arrowSize, cy);
             ctx.lineTo(cx + arrowSize, cy);
@@ -754,7 +778,6 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
             ctx.lineTo(cx + arrowSize - 3, cy + 3);
             ctx.stroke();
           } else {
-            // Vertical arrow ↑
             ctx.beginPath();
             ctx.moveTo(cx, cy + arrowSize);
             ctx.lineTo(cx, cy - arrowSize);
@@ -763,9 +786,9 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
             ctx.lineTo(cx + 3, cy - arrowSize + 3);
             ctx.stroke();
           }
-          ctx.restore();
         }
       }
+      ctx.restore();
     }
   });
 
@@ -983,8 +1006,12 @@ function renderResult(sheetW, sheetH, kerf, sheets, unplaced) {
 
 // ── Init ──
 initPresets();
+syncPresetHighlight();
 document.getElementById('pieceW').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('pieceH').focus(); });
 document.getElementById('pieceH').addEventListener('keydown', e => { if (e.key === 'Enter') addPiece(); });
+['sheetW', 'sheetH', 'units'].forEach(id => {
+  document.getElementById(id).addEventListener('change', syncPresetHighlight);
+});
 
 // Close modal on overlay click
 document.getElementById('importModal').addEventListener('click', function(e) {
