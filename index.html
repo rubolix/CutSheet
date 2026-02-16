@@ -794,22 +794,23 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
   ctx.lineWidth = 2;
   ctx.strokeRect(ox, oy, sw, sh);
 
-  // Dimension labels
+  // Dimension labels (grey, rotated height on far left, width centered below)
   ctx.fillStyle = '#888';
   ctx.font = '12px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillText(`${fmtDim(sheetW)} ${unit}`, ox + sw / 2, oy + sh + 6);
   ctx.save();
-  ctx.translate(ox - 6, oy + sh / 2);
+  ctx.translate(10, oy + sh / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.textBaseline = 'bottom';
+  ctx.textBaseline = 'middle';
   ctx.fillText(`${fmtDim(sheetH)} ${unit}`, 0, 0);
   ctx.restore();
 
   // Cut position markers
-  ctx.fillStyle = '#ff5050';
   ctx.font = '9px -apple-system, sans-serif';
+  // Bottom markers for vertical cuts
+  ctx.fillStyle = '#ff5050';
   ctx.textBaseline = 'top';
   cutLinesV.forEach(xPos => {
     const cx = ox + xPos * scale;
@@ -822,17 +823,27 @@ function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, 
     ctx.lineWidth = 1;
     ctx.stroke();
   });
+  // Left markers for horizontal cuts — avoid overlapping labels
+  const hCutsSorted = [...cutLinesH].sort((a, b) => a - b);
+  const minLabelGap = 12;
+  let lastLabelY = -Infinity;
   ctx.textBaseline = 'middle';
-  cutLinesH.forEach(yPos => {
+  hCutsSorted.forEach(yPos => {
     const cy = oy + yPos * scale;
-    ctx.textAlign = 'right';
-    ctx.fillText(`${fmtDim(yPos)}`, ox - 4, cy);
+    // tick mark always drawn
     ctx.beginPath();
     ctx.moveTo(ox, cy);
     ctx.lineTo(ox - 3, cy);
     ctx.strokeStyle = '#ff5050';
     ctx.lineWidth = 1;
     ctx.stroke();
+    // only draw label if it won't overlap previous label
+    if (cy - lastLabelY >= minLabelGap) {
+      ctx.fillStyle = '#ff5050';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${fmtDim(yPos)}`, ox - 5, cy);
+      lastLabelY = cy;
+    }
   });
 
   return { cutLinesH, cutLinesV };
