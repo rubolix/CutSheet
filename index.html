@@ -535,86 +535,111 @@ function printView() {
   window.print();
 }
 
-// ── Optimizer (Guillotine Best-Area-Fit with grain + multi-sheet) ──
-function packSheet(rects, sheetW, sheetH, kerf) {
-  let freeRects = [{ x: 0, y: 0, w: sheetW, h: sheetH }];
-  let placed = [];
-  let remaining = [];
+// ── Optimizer (Maxrects with global best-fit, multi-heuristic) ──
 
-  for (const rect of rects) {
-    let bestScore = Infinity;
-    let bestFree = -1;
-    let bestRotated = false;
-    const grain = rect.grain || 'any';
-
-    // Determine allowed orientations based on grain
-    // "with" = piece width aligns with sheet width → no rotation
-    // "cross" = piece height aligns with sheet width → force rotation
-    let tryNormal = true;
-    let tryRotated = true;
-
-    if (grain === 'with') {
-      tryRotated = false; // must keep original orientation
-    } else if (grain === 'cross') {
-      tryNormal = false; // must rotate
-    } else {
-      // "any" — rotation depends on canRotate flag
-      if (!rect.canRotate) tryRotated = false;
-    }
-
-    for (let fi = 0; fi < freeRects.length; fi++) {
-      const f = freeRects[fi];
-
-      if (tryNormal && rect.w <= f.w && rect.h <= f.h) {
-        const score = f.w * f.h - rect.w * rect.h;
-        if (score < bestScore) {
-          bestScore = score;
-          bestFree = fi;
-          bestRotated = false;
-        }
-      }
-
-      if (tryRotated && rect.w !== rect.h && rect.h <= f.w && rect.w <= f.h) {
-        const score = f.w * f.h - rect.w * rect.h;
-        if (score < bestScore) {
-          bestScore = score;
-          bestFree = fi;
-          bestRotated = true;
-        }
+function pruneContainedRects(rects) {
+  let result = [];
+  for (let i = 0; i < rects.length; i++) {
+    let dominated = false;
+    for (let j = 0; j < rects.length; j++) {
+      if (i === j) continue;
+      if (rects[j].x <= rects[i].x && rects[j].y <= rects[i].y &&
+          rects[j].x + rects[j].w >= rects[i].x + rects[i].w &&
+          rects[j].y + rects[j].h >= rects[i].y + rects[i].h) {
+        dominated = true; break;
       }
     }
+    if (!dominated) result.push(rects[i]);
+  }
+  return result;
+}
 
-    if (bestFree >= 0) {
-      const f = freeRects[bestFree];
-      const pw = bestRotated ? rect.h : rect.w;
-      const ph = bestRotated ? rect.w : rect.h;
-
-      placed.push({
-        x: f.x, y: f.y, w: pw, h: ph,
-        label: rect.label, color: rect.color,
-        rotated: bestRotated,
-        origW: rect.w, origH: rect.h,
-        grain: grain
-      });
-
-      freeRects.splice(bestFree, 1);
-      const rightW = f.w - pw - kerf;
-      const bottomH = f.h - ph - kerf;
-
-      if (rightW > 0 && f.h > 0) {
-        freeRects.push({ x: f.x + pw + kerf, y: f.y, w: rightW, h: f.h });
-      }
-      if (bottomH > 0 && pw > 0) {
-        freeRects.push({ x: f.x, y: f.y + ph + kerf, w: pw, h: bottomH });
-      }
-
-      freeRects.sort((a, b) => (a.w * a.h) - (b.w * b.h));
+function splitFreeRects(freeRects, px, py, pw, ph, kerf) {
+  const px2 = px + pw + kerf, py2 = py + ph + kerf;
+  let newFree = [];
+  for (const fr of freeRects) {
+    const fx2 = fr.x + fr.w, fy2 = fr.y + fr.h;
+    if (px >= fx2 || px2 <= fr.x || py >= fy2 || py2 <= fr.y) {
+      newFree.push(fr);
     } else {
-      remaining.push(rect);
+      if (px > fr.x) newFree.push({ x: fr.x, y: fr.y, w: px - fr.x, h: fr.h });
+      if (px2 < fx2) newFree.push({ x: px2, y: fr.y, w: fx2 - px2, h: fr.h });
+      if (py > fr.y) newFree.push({ x: fr.x, y: fr.y, w: fr.w, h: py - fr.y });
+      if (py2 < fy2) newFree.push({ x: fr.x, y: py2, w: fr.w, h: fy2 - py2 });
     }
   }
+  return pruneContainedRects(newFree);
+}
 
-  return { placed, remaining, freeRects };
+function packSheetWithScorer(rects, sheetW, sheetH, kerf, scorer) {
+  let freeRects = [{ x: 0, y: 0, w: sheetW, h: sheetH }];
+  let placed = [];
+  let todo = rects.map(r => ({ ...r }));
+
+  while (todo.length > 0) {
+    let bestS1 = Infinity, bestS2 = Infinity;
+    let bestTodo = -1, bestFree = -1, bestRotated = false;
+
+    for (let ti = 0; ti < todo.length; ti++) {
+      const rect = todo[ti];
+      const grain = rect.grain || 'any';
+      let tryN = true, tryR = true;
+      if (grain === 'with') tryR = false;
+      else if (grain === 'cross') tryN = false;
+      else if (!rect.canRotate) tryR = false;
+
+      for (let fi = 0; fi < freeRects.length; fi++) {
+        const f = freeRects[fi];
+        if (tryN && rect.w <= f.w && rect.h <= f.h) {
+          const [s1, s2] = scorer(f, rect.w, rect.h);
+          if (s1 < bestS1 || (s1 === bestS1 && s2 < bestS2)) {
+            bestS1 = s1; bestS2 = s2; bestTodo = ti; bestFree = fi; bestRotated = false;
+          }
+        }
+        if (tryR && rect.w !== rect.h && rect.h <= f.w && rect.w <= f.h) {
+          const [s1, s2] = scorer(f, rect.h, rect.w);
+          if (s1 < bestS1 || (s1 === bestS1 && s2 < bestS2)) {
+            bestS1 = s1; bestS2 = s2; bestTodo = ti; bestFree = fi; bestRotated = true;
+          }
+        }
+      }
+    }
+
+    if (bestTodo < 0) break;
+    const rect = todo[bestTodo];
+    const f = freeRects[bestFree];
+    const pw = bestRotated ? rect.h : rect.w;
+    const ph = bestRotated ? rect.w : rect.h;
+
+    placed.push({
+      x: f.x, y: f.y, w: pw, h: ph,
+      label: rect.label, color: rect.color,
+      rotated: bestRotated, origW: rect.w, origH: rect.h,
+      grain: rect.grain || 'any'
+    });
+    todo.splice(bestTodo, 1);
+    freeRects = splitFreeRects(freeRects, f.x, f.y, pw, ph, kerf);
+  }
+
+  return { placed, remaining: todo, freeRects };
+}
+
+const PACK_SCORERS = [
+  (f, pw, ph) => { const s = Math.min(f.w-pw, f.h-ph); return [s, Math.max(f.w-pw, f.h-ph)]; },
+  (f, pw, ph) => [f.w*f.h - pw*ph, Math.min(f.w-pw, f.h-ph)],
+  (f, pw, ph) => { const l = Math.max(f.w-pw, f.h-ph); return [l, Math.min(f.w-pw, f.h-ph)]; },
+  (f, pw, ph) => [f.y, f.x],
+];
+
+function packSheet(rects, sheetW, sheetH, kerf) {
+  let best = null;
+  for (const scorer of PACK_SCORERS) {
+    const result = packSheetWithScorer(rects, sheetW, sheetH, kerf, scorer);
+    if (!best || result.placed.length > best.placed.length) {
+      best = result;
+    }
+  }
+  return best;
 }
 
 function optimize() {
