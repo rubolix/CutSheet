@@ -48,8 +48,12 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .piece-item { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--bg); border-radius: 4px; margin-bottom: 6px; font-size: 0.9rem; }
 .piece-item .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
 .piece-item .dims { flex: 1; }
-.piece-item .qty { color: var(--muted); }
+.piece-item .qty { color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.qty-btn { background: var(--border); color: var(--text); border: none; border-radius: 3px; width: 20px; height: 20px; cursor: pointer; font-size: 0.85rem; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
+.qty-btn:hover { background: var(--accent); color: #fff; }
 .piece-item .lbl { color: var(--accent2); font-size: 0.8rem; }
+.piece-item .btn-edit { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.piece-item .btn-edit:hover { border-color: var(--accent2); color: var(--accent2); }
 .piece-item .grain-tag { font-size: 0.7rem; color: var(--accent); }
 
 .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
@@ -176,7 +180,7 @@ footer a { color: var(--accent2); }
       </div>
     </div>
     <div class="actions">
-      <button class="btn btn-accent" onclick="addPiece()">Add Piece</button>
+      <button class="btn btn-accent" onclick="addPiece()">Add Piece(s)</button>
       <button class="btn btn-outline" onclick="clearPieces()">Clear All</button>
       <button class="btn btn-outline" onclick="loadExample()">Load Example</button>
     </div>
@@ -309,6 +313,35 @@ function removePiece(i) {
   renderPiecesList();
 }
 
+function adjustQty(i, delta) {
+  const newQty = pieces[i].qty + delta;
+  if (newQty < 1) return removePiece(i);
+  if (newQty > 99) return;
+  pieces[i].qty = newQty;
+  renderPiecesList();
+}
+
+function editPiece(i) {
+  const p = pieces[i];
+  document.getElementById('pieceW').value = p.w;
+  document.getElementById('pieceH').value = p.h;
+  document.getElementById('pieceQty').value = p.qty;
+  document.getElementById('pieceLabel').value = p.label || '';
+  document.getElementById('pieceGrain').value = p.grain || 'any';
+  const rotateEl = document.getElementById('pieceRotate');
+  if (p.grain === 'with' || p.grain === 'cross') {
+    rotateEl.checked = false;
+    rotateEl.disabled = true;
+  } else {
+    rotateEl.checked = p.canRotate;
+    rotateEl.disabled = false;
+  }
+  pieces.splice(i, 1);
+  pieces.forEach((pc, j) => pc.color = COLORS[j % COLORS.length]);
+  renderPiecesList();
+  document.getElementById('pieceW').focus();
+}
+
 function clearPieces() {
   pieces = [];
   renderPiecesList();
@@ -342,9 +375,10 @@ function renderPiecesList() {
     return `<div class="piece-item">
       <div class="swatch" style="background:${p.color}"></div>
       <div class="dims">${fmtDim(p.w)}×${fmtDim(p.h)}${unit}</div>
-      <div class="qty">×${p.qty}</div>
+      <div class="qty"><button class="qty-btn" onclick="adjustQty(${i},-1)">−</button>×${p.qty}<button class="qty-btn" onclick="adjustQty(${i},1)">+</button></div>
       ${p.label ? `<div class="lbl">${esc(p.label)}</div>` : ''}
       ${grainInfo}
+      <button class="btn btn-sm btn-edit" onclick="editPiece(${i})" title="Edit">✎</button>
       <button class="btn btn-sm btn-danger" onclick="removePiece(${i})">✕</button>
     </div>`;
   }).join('');
@@ -612,7 +646,7 @@ function optimize() {
 
 // ── Rendering ──
 function renderSheetCanvas(container, sheetW, sheetH, placed, unit, sheetIndex, totalSheets) {
-  const pad = { top: 8, right: 8, bottom: 28, left: 28 };
+  const pad = { top: 8, right: 8, bottom: 28, left: 48 };
   const maxCanvasW = container.clientWidth - 2;
   const availW = (maxCanvasW || 700) - pad.left - pad.right;
   const availH = 600;
